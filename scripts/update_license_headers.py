@@ -89,7 +89,7 @@ def should_add_license_header(file_path: Path) -> bool:
         return False
 
     # Skip certain specific files
-    skip_files = []
+    skip_files = ["_version.py"]
 
     # Allow __init__.py files that are not in the root of the SDK
     if file_path.name in skip_files:
