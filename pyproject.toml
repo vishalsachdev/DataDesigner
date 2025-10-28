@@ -1,6 +1,6 @@
 [project]
 name = "data-designer"
-version = "0.0.1"
+dynamic = ["version"]
 description = "General framework for synthetic data generation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -63,8 +63,15 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.1.0.dev0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/data_designer/_version.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
