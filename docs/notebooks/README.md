@@ -85,6 +85,19 @@ Learn how to leverage existing datasets to guide synthetic data generation:
 - Combining seed data with LLM generation
 - Creating realistic synthetic data based on existing patterns
 
+### [4. Marketing Analytics Demo](4-marketing-analytics-demo.ipynb)
+
+Comprehensive demo for marketing analytics use cases, perfect for teaching or business applications:
+
+- Generate customer demographics and segmentation data
+- Create product catalogs with realistic pricing
+- Build email marketing campaign performance datasets
+- Generate social media engagement metrics
+- Model customer journeys and conversion funnels
+- Export data for analysis in SQL, BI tools, or Python
+
+**Ideal for marketing analytics classes, dashboard testing, and ML training!**
+
 ## 📖 Important Documentation Sections
 
 Before diving into the tutorials, familiarize yourself with these key documentation sections:
