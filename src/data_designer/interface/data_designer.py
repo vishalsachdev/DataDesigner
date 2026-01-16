@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import (
     get_default_model_configs,
     get_default_model_providers_missing_api_keys,
@@ -34,7 +35,6 @@ from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetPr
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
-from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
@@ -165,7 +165,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         resource_provider = self._create_resource_provider(dataset_name, config_builder)
 
-        builder = self._create_dataset_builder(config_builder, resource_provider)
+        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
 
         try:
             builder.build(num_records=num_records)
@@ -182,6 +182,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}")
 
         dataset_metadata = resource_provider.get_dataset_metadata()
+
+        # Update metadata with column statistics from analysis
+        if analysis:
+            builder.artifact_storage.update_metadata(
+                {"column_statistics": [stat.model_dump(mode="json") for stat in analysis.column_statistics]}
+            )
 
         return DatasetCreationResults(
             artifact_storage=builder.artifact_storage,
@@ -213,7 +219,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         logger.info(f"{RandomEmoji.previewing()} Preview generation in progress")
 
         resource_provider = self._create_resource_provider("preview-dataset", config_builder)
-        builder = self._create_dataset_builder(config_builder, resource_provider)
+        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
 
         try:
             raw_dataset = builder.build_preview(num_records=num_records)
@@ -277,7 +283,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             InvalidConfigError: If the configuration is invalid.
         """
         resource_provider = self._create_resource_provider("validate-configuration", config_builder)
-        compile_data_designer_config(config_builder, resource_provider)
+        compile_data_designer_config(config_builder.build(), resource_provider)
 
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.
@@ -342,14 +348,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     def _create_dataset_builder(
         self,
-        config_builder: DataDesignerConfigBuilder,
+        data_designer_config: DataDesignerConfig,
         resource_provider: ResourceProvider,
     ) -> ColumnWiseDatasetBuilder:
-        config = compile_data_designer_config(config_builder, resource_provider)
-
         return ColumnWiseDatasetBuilder(
-            column_configs=compile_dataset_builder_column_configs(config),
-            processor_configs=config.processors or [],
+            data_designer_config=data_designer_config,
             resource_provider=resource_provider,
         )
 

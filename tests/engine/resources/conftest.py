@@ -38,7 +38,6 @@ def stub_sample_dataframe():
 def stub_artifact_storage():
     mock_storage = Mock()
     mock_storage.write_parquet_file = Mock()
-    mock_storage.write_configs = Mock()
     return mock_storage
 
 

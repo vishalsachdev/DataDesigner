@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from data_designer.config.column_types import ColumnConfigT
+from data_designer.config.config_builder import BuilderConfig
+from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
@@ -25,13 +27,15 @@ from data_designer.engine.column_generators.generators.base import (
     GenerationStrategy,
 )
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
+from data_designer.engine.compiler import compile_data_designer_config
+from data_designer.engine.dataset_builders.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
-from data_designer.engine.dataset_builders.multi_column_configs import DatasetBuilderColumnConfigT, MultiColumnConfig
+from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import (
     MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
     ConcurrentThreadExecutor,
 )
+from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
@@ -54,8 +58,7 @@ _CLIENT_VERSION: str = importlib.metadata.version("data_designer")
 class ColumnWiseDatasetBuilder:
     def __init__(
         self,
-        column_configs: list[DatasetBuilderColumnConfigT],
-        processor_configs: list[ProcessorConfig],
+        data_designer_config: DataDesignerConfig,
         resource_provider: ResourceProvider,
         registry: DataDesignerRegistry | None = None,
     ):
@@ -63,8 +66,12 @@ class ColumnWiseDatasetBuilder:
         self._resource_provider = resource_provider
         self._records_to_drop: set[int] = set()
         self._registry = registry or DataDesignerRegistry()
-        self._column_configs = column_configs
-        self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(processor_configs)
+
+        self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
+        self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
+        self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(
+            self._data_designer_config.processors or []
+        )
         self._validate_column_configs()
 
     @property
@@ -91,9 +98,8 @@ class ColumnWiseDatasetBuilder:
         num_records: int,
         on_batch_complete: Callable[[Path], None] | None = None,
     ) -> Path:
-        self._write_configs()
         self._run_model_health_check_if_needed()
-
+        self._write_builder_config()
         generators = self._initialize_generators()
         start_time = time.perf_counter()
         group_id = uuid.uuid4().hex
@@ -151,6 +157,12 @@ class ColumnWiseDatasetBuilder:
             )
             for config in self._column_configs
         ]
+
+    def _write_builder_config(self) -> None:
+        self.artifact_storage.mkdir_if_needed(self.artifact_storage.base_dataset_path)
+        BuilderConfig(data_designer=self._data_designer_config).to_json(
+            self.artifact_storage.base_dataset_path / SDG_CONFIG_FILENAME
+        )
 
     def _run_batch(
         self, generators: list[ColumnGenerator], *, batch_mode: str, save_partial_results: bool = True, group_id: str
@@ -302,16 +314,6 @@ class ColumnWiseDatasetBuilder:
 
     def _worker_result_callback(self, result: dict, *, context: dict | None = None) -> None:
         self.batch_manager.update_record(context["index"], result)
-
-    def _write_configs(self) -> None:
-        self.artifact_storage.write_configs(
-            json_file_name="column_configs.json",
-            configs=self._column_configs,
-        )
-        self.artifact_storage.write_configs(
-            json_file_name="model_configs.json",
-            configs=self._resource_provider.model_registry.model_configs.values(),
-        )
 
     def _emit_batch_inference_events(
         self, batch_mode: str, usage_deltas: dict[str, ModelUsageStats], group_id: str
